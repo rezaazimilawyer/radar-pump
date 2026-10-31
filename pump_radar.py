@@ -812,7 +812,7 @@ def run(chains, top=15, min_score=None, new_only=False, out_json=None,
 def show(res, limit=15):
     reg = res["regime"]
     print("=" * 78)
-    print(f"رادار پامپ v2  ·  {res['generated_utc']} UTC  ·  "
+    print(f"رادار پامپ v3  ·  {res['generated_utc']} UTC  ·  "
           f"استخر اسکن‌شده: {res['scanned_pools']}  ·  "
           f"رد شده با فیلتر سخت: {res.get('dropped_hard_filters', 0)}")
     print("=" * 78)
@@ -901,7 +901,18 @@ def alert_text(res, min_send=MIN_SEND_FLOOR, allow_risk_off=False,
             print(f"[gate] رژیم {reg['verdict']} → {len(hot)} سیگنال 🚀 سانسور شد")
         hot = []
     if not hot and not watch:
-        return None
+        n = sum(1 for r in res["rows"]
+                if r.get("sendable") and not r.get("already_sent")
+                and r["score"] >= min_send)
+        best = max([r["score"] for r in res["rows"]], default=0)
+        hb = [f"<b>🚨 رادار پامپ</b>  {res['generated_utc']} UTC",
+              f"رژیم: {reg['verdict']}", ""]
+        if risk_off and n:
+            hb.append(f"<b>🔴 RISK-OFF</b> — {n} سیگنال 🚀 سانسور شد (نام عمداً حذف شد).")
+        hb.append(f"💤 بیدارم — بالاترین امتیاز این اسکن: {best} (حداقل لازم {int(min_send)})")
+        hb.append("")
+        hb.append("❗️سیگنال آماده نیست. تحقیق شخصی و حد ضرر اجباری. حداکثر ۲٪ سرمایه.")
+        return "\n".join(hb)
 
     L = [f"<b>🚨 رادار پامپ</b>  {res['generated_utc']} UTC",
          f"رژیم: {reg['verdict']}", ""]
