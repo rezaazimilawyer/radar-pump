@@ -887,19 +887,28 @@ def alert_text(res, min_send=MIN_SEND_FLOOR, allow_risk_off=False,
       ۴) چک‌لیست اجباری + قبلاً ارسال نشده باشد
     """
     reg = res["regime"]
-    if not reg.get("allow", True) and not allow_risk_off:
-        print(f"[gate] رژیم {reg['verdict']} → ارسال انجام نشد")
-        return None
+    risk_off = (not reg.get("allow", True)) and not allow_risk_off
 
     ok = lambda r: r.get("sendable") and not r.get("already_sent")
     hot = [r for r in res["rows"] if r["score"] >= min_send and ok(r)]
     watch = [r for r in res["rows"]
              if watch_floor <= r["score"] < min_send and ok(r)]
+
+    # در RISK-OFF طبقهٔ 🚀 کامل خاموش می‌شود (قاعدهٔ آهنین)، ولی طبقهٔ 👀
+    # که صریحاً «سیگنال نیست» است باقی می‌ماند تا کاربر بداند رادار زنده است.
+    if risk_off:
+        if hot:
+            print(f"[gate] رژیم {reg['verdict']} → {len(hot)} سیگنال 🚀 سانسور شد")
+        hot = []
     if not hot and not watch:
         return None
 
     L = [f"<b>🚨 رادار پامپ</b>  {res['generated_utc']} UTC",
          f"رژیم: {reg['verdict']}", ""]
+    if risk_off:
+        L.append("<b>🔴 RISK-OFF</b> — بازار منفی است. هیچ سیگنال خریدی صادر نشد.")
+        L.append("<i>فقط لیست «زیر نظر» برای اطلاع است.</i>")
+        L.append("")
     keys = []
     rugs = res.get("rug_dropped") or []
     if rugs:
@@ -979,8 +988,12 @@ if __name__ == "__main__":
     ap.add_argument("--new-only", action="store_true")
     ap.add_argument("--loop", type=int, default=0,
                     help="هر N دقیقه یک‌بار تکرار کن (0 = یک‌بار)")
-    ap.add_argument("--telegram", default=None,
-                    help="TOKEN:CHAT_ID برای ارسال هشدار تلگرام")
+    # نکته: در ورک‌فلو به شکل خالی «--telegram» استفاده می‌شود تا کلیدها از
+    # متغیرهای محیطی TG_TOKEN/TG_CHAT خوانده شوند. بدون nargs="?" این حالت
+    # با خطای «expected one argument» کرش می‌کرد.
+    ap.add_argument("--telegram", nargs="?", const="env", default=None,
+                    help="TOKEN:CHAT_ID برای ارسال هشدار تلگرام "
+                         "(بدون مقدار ⇒ از TG_TOKEN و TG_CHAT)")
     ap.add_argument("--send-above", type=int, default=MIN_SEND_FLOOR,
                     help=f"فقط score بالاتر از این سیگنال (🚀) حساب شود (کف مجاز: {MIN_SEND_FLOOR})")
     ap.add_argument("--watch-floor", type=int, default=WATCH_FLOOR,
