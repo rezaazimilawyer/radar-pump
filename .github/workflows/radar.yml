@@ -18,3 +18,4 @@ jobs:
         with:
           python-version: "3.11"
       - run: TG_TOKEN="${{ secrets.TG_TOKEN }}" TG_CHAT="${{ secrets.TG_CHAT }}" python3 pump_radar.py --chains solana base eth bsc arbitrum polygon_pos avalanche optimism --top 10 --send-above 45 --telegram
+--allow-risk-off
