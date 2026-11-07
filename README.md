@@ -2,12 +2,12 @@ name: Pump Radar
 
 on:
   schedule:
-    - cron: '*/30 * * * *' # هر ۳۰ دقیقه یک‌بار اجرا می‌شود
-  workflow_dispatch:      # اجازه اجرای دستی با دکمه
+    - cron: '*/5 * * * *' # اجرای خودکار هر ۵ دقیقه
+  workflow_dispatch:      # قابلیت اجرای دستی با دکمه
 
 jobs:
   run-radar:
-  runs-on: ubuntu-latest
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
