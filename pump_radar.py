@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-pump_radar.py — رادار جامع میم‌کوین سولانا (پیش‌‌پامپ، پامپ و دامپ)
+pump_radar.py — رادار میم‌کوین سولانا مجهز به تحلیل هوش مصنوعی Gemini
 """
 import os
 import sys
@@ -11,17 +11,20 @@ import urllib.request
 import urllib.error
 from datetime import datetime, timezone
 
-UA = {"User-Agent": "Mozilla/5.0 (compatible; PumpRadar/8.0)"}
+UA = {"User-Agent": "Mozilla/5.0 (compatible; PumpRadar/11.0)"}
 GT = "https://api.geckoterminal.com/api/v2"
 
-MIN_LIQ = 10_000          # حداقل نقدینگی به دلار
+# کلید API جمنای شما که مستقیماً در کد قرار گرفت
+GEMINI_KEY = "AQ.Ab8RN6KZemLT8PmoOSA_XyqyBkI2-KqTxLwuA5-TKOR2rSYIPg"
+
+MIN_LIQ = 10_000          # حداقل نقدینگی ($10,000)
 VOLUME_MULTIPLIER = 3.0   # حداقل جهش حجم ۳ برابری
 
-def _get_safe(url):
+def _get_safe(url, headers=UA, data=None):
     for attempt in range(3):
         try:
             time.sleep(2.0)
-            req = urllib.request.Request(url, headers=UA)
+            req = urllib.request.Request(url, headers=headers, data=data)
             with urllib.request.urlopen(req, timeout=20) as response:
                 return json.loads(response.read().decode())
         except urllib.error.HTTPError as e:
@@ -32,6 +35,32 @@ def _get_safe(url):
         except Exception:
             time.sleep(2.0)
     return None
+
+def analyze_with_gemini(name, price_change, volume_ratio, reserve):
+    """تحلیل هوشمند توکن با Google Gemini API"""
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}"
+    headers = {"Content-Type": "application/json"}
+    
+    prompt = (
+        f"توکن {name} در شبکه سولانا با مشخصات زیر شناسایی شده:\n"
+        f"- جهش حجم ۵ دقیقه: {volume_ratio:.1f} برابر\n"
+        f"- تغییر قیمت ۵ دقیقه: {price_change:+.2f}%\n"
+        f"- نقدینگی: ${reserve:,.0f}\n\n"
+        f"پاسخ بده در یک جمله بسیار کوتاه فارسی (حداکثر ۱۵ کلمه): ریسک این ورود چطوره؟"
+    )
+    
+    payload = {
+        "contents": [{
+            "parts": [{"text": prompt}]
+        }]
+    }
+    
+    res = _get_safe(url, headers=headers, data=json.dumps(payload).encode('utf-8'))
+    try:
+        text = res['candidates'][0]['content']['parts'][0]['text']
+        return text.strip()
+    except Exception:
+        return "تحلیلی ثبت نشد."
 
 def notify_telegram(token, chat, text):
     if not token or not chat:
@@ -49,10 +78,10 @@ if __name__ == "__main__":
     tk = os.environ.get("TG_TOKEN")
     ch = os.environ.get("TG_CHAT")
     
-    print("[+] شروع اسکن پیشرفته بازار (پیش‌‌پامپ، پامپ، دامپ)...")
+    print("[+] اسکن بازار مجهز به Gemini API...")
     data = _get_safe(f"{GT}/networks/solana/trending_pools?page=1")
     
-    msg_lines = [f"<b>radar هوشمند میم‌کوین (سولانا)</b>\n<code>{datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC</code>\n"]
+    msg_lines = [f"<b>🤖 رادار هوش مصنوعی Gemini (سولانا)</b>\n<code>{datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC</code>\n"]
     sent_count = 0
     
     if data and "data" in data:
@@ -73,45 +102,42 @@ if __name__ == "__main__":
             if reserve < MIN_LIQ:
                 continue
                 
-            # تشخیص وضعیت (پیش‌پامپ، پامپ یا دامپ)
             signal_type = None
-            
             if price_change <= -5.0:
-                signal_type = "DUMP" # ریزش و فشار فروش سنگین
+                signal_type = "DUMP"
             elif volume_ratio >= VOLUME_MULTIPLIER:
                 if -2.0 <= price_change <= 4.0:
-                    signal_type = "PRE_PUMP" # پول هوشمند وارد شده، قیمت هنوز آرامه
+                    signal_type = "PRE_PUMP"
                 elif price_change > 4.0:
-                    signal_type = "ACTIVE_PUMP" # پامپ فعال و انفجار قیمت
+                    signal_type = "ACTIVE_PUMP"
             
             if not signal_type:
                 continue
                 
-            # استخراج آدرس کانترکت
             rel = it.get("relationships", {})
             base_token_id = ((rel.get("base_token") or {}).get("data") or {}).get("id", "")
             if base_token_id.startswith("solana_"):
                 base_token_id = base_token_id[7:]
                 
-            # نمایش بر اساس نوع سیگنال
+            # دریافت نظر هوش مصنوعی Gemini
+            ai_comment = analyze_with_gemini(name, price_change, volume_ratio, reserve)
+            
             if signal_type == "PRE_PUMP":
                 msg_lines.append(f"🟢 <b>[پیش‌پامپ / پول هوشمند] {name}</b>")
-                msg_lines.append(f"⚡️ جهش حجم: <b>×{volume_ratio:.1f} برابر</b> | تغییر ۵دقیقه: {price_change:+.2f}%")
             elif signal_type == "ACTIVE_PUMP":
                 msg_lines.append(f"🚀 <b>[در حال پامپ ⚡️] {name}</b>")
-                msg_lines.append(f"⚡️ جهش حجم: <b>×{volume_ratio:.1f} برابر</b> | رشد قیمت: <b>{price_change:+.2f}%</b>")
             elif signal_type == "DUMP":
-                msg_lines.append(f"🔴 <b>[هشدار دامپ / ریزش ⚠️] {name}</b>")
-                msg_lines.append(f"📉 افت قیمت ۵دقیقه: <b>{price_change:+.2f}%</b>")
+                msg_lines.append(f"🔴 <b>[هشدار دامپ ⚠️] {name}</b>")
                 
+            msg_lines.append(f"⚡️ جهش حجم: <b>×{volume_ratio:.1f} برابر</b> | تغییر ۵دقیقه: {price_change:+.2f}%")
             msg_lines.append(f"💰 نقدینگی: ${reserve:,.0f}")
+            msg_lines.append(f"🧠 <b>تحلیل Gemini:</b> <i>{ai_comment}</i>")
             
-            # پیشنهاد خرید و فروش برای حالت‌های صعودی
             if signal_type in ["PRE_PUMP", "ACTIVE_PUMP"] and current_price > 0:
                 buy_price = current_price
-                target_1 = current_price * 1.30  # ۳۰٪ سود
-                target_2 = current_price * 1.60  # ۶۰٪ سود
-                stop_loss = current_price * 0.85 # ۱۵٪ حد ضرر
+                target_1 = current_price * 1.30
+                target_2 = current_price * 1.60
+                stop_loss = current_price * 0.85
                 
                 if current_price < 0.00001:
                     b_fmt, t1_fmt, t2_fmt, s_fmt = f"{buy_price:.10f}", f"{target_1:.10f}", f"{target_2:.10f}", f"{stop_loss:.10f}"
@@ -120,7 +146,7 @@ if __name__ == "__main__":
                 else:
                     b_fmt, t1_fmt, t2_fmt, s_fmt = f"{buy_price:.4f}", f"{target_1:.4f}", f"{target_2:.4f}", f"{stop_loss:.4f}"
 
-                msg_lines.append(f"📥 قیمت ورود: <code>{b_fmt}</code>")
+                msg_lines.append(f"📥 ورود: <code>{b_fmt}</code>")
                 msg_lines.append(f"🎯 تارگت ۱ (+30%): <code>{t1_fmt}</code>")
                 msg_lines.append(f"🎯 تارگت ۲ (+60%): <code>{t2_fmt}</code>")
                 msg_lines.append(f"🛑 حد ضرر (-15%): <code>{s_fmt}</code>")
@@ -130,15 +156,15 @@ if __name__ == "__main__":
             msg_lines.append("----------------------------")
             sent_count += 1
             
-            if sent_count >= 4:
+            if sent_count >= 3:
                 break
                 
     if sent_count > 0:
         msg = "\n".join(msg_lines)
         if tk and ch:
             notify_telegram(tk, ch, msg)
-            print("[✓] سیگنال‌های پیش‌‌پامپ، پامپ و دامپ ارسال شدند.")
+            print("[✓] سیگنال‌ها همراه با تحلیل Gemini ارسال شدند.")
         else:
             print(msg)
     else:
-        print("[-] هیچ توکنی با شرایط خاص در این بازه یافت نشد.")
+        print("[-] هیچ توکنی با شرایط خاص یافت نشد.")
