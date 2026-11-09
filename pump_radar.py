@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-pump_radar.py — رادار میم‌کوین سولانا مجهز به تحلیل هوش مصنوعی Gemini
+pump_radar.py — رادار هوش مصنوعی Gemini (سولانا)
 """
 import os
 import sys
@@ -9,16 +9,16 @@ import time
 import json
 import urllib.request
 import urllib.error
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-UA = {"User-Agent": "Mozilla/5.0 (compatible; PumpRadar/11.0)"}
+UA = {"User-Agent": "Mozilla/5.0 (compatible; PumpRadar/14.0)"}
 GT = "https://api.geckoterminal.com/api/v2"
 
-# کلید API جمنای شما که مستقیماً در کد قرار گرفت
+# کلید API جمنای شما
 GEMINI_KEY = "AQ.Ab8RN6KZemLT8PmoOSA_XyqyBkI2-KqTxLwuA5-TKOR2rSYIPg"
 
-MIN_LIQ = 10_000          # حداقل نقدینگی ($10,000)
-VOLUME_MULTIPLIER = 3.0   # حداقل جهش حجم ۳ برابری
+MIN_LIQ = 10_000          
+VOLUME_MULTIPLIER = 3.0   
 
 def _get_safe(url, headers=UA, data=None):
     for attempt in range(3):
@@ -37,17 +37,11 @@ def _get_safe(url, headers=UA, data=None):
     return None
 
 def analyze_with_gemini(name, price_change, volume_ratio, reserve):
-    """تحلیل هوشمند توکن با Google Gemini API"""
+    """تحلیل هوشمند توکن با Google Gemini API با مدیریت امن پاسخ‌ها"""
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}"
     headers = {"Content-Type": "application/json"}
     
-    prompt = (
-        f"توکن {name} در شبکه سولانا با مشخصات زیر شناسایی شده:\n"
-        f"- جهش حجم ۵ دقیقه: {volume_ratio:.1f} برابر\n"
-        f"- تغییر قیمت ۵ دقیقه: {price_change:+.2f}%\n"
-        f"- نقدینگی: ${reserve:,.0f}\n\n"
-        f"پاسخ بده در یک جمله بسیار کوتاه فارسی (حداکثر ۱۵ کلمه): ریسک این ورود چطوره؟"
-    )
+    prompt = f"توکن {name} با جهش حجم {volume_ratio:.1f} برابر و تغییر قیمت {price_change:+.2f}%. در یک جمله کوتاه فارسی بگو آیا ارزش بررسی دارد؟"
     
     payload = {
         "contents": [{
@@ -55,12 +49,19 @@ def analyze_with_gemini(name, price_change, volume_ratio, reserve):
         }]
     }
     
-    res = _get_safe(url, headers=headers, data=json.dumps(payload).encode('utf-8'))
     try:
-        text = res['candidates'][0]['content']['parts'][0]['text']
-        return text.strip()
+        req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers, method="POST")
+        with urllib.request.urlopen(req, timeout=15) as response:
+            res = json.loads(response.read().decode())
+            candidates = res.get('candidates', [])
+            if candidates:
+                content = candidates[0].get('content', {})
+                parts = content.get('parts', [])
+                if parts:
+                    return parts[0].get('text', 'تحلیلی ثبت نشد.').strip()
     except Exception:
-        return "تحلیلی ثبت نشد."
+        pass
+    return "تحلیل موقتاً در دسترس نیست."
 
 def notify_telegram(token, chat, text):
     if not token or not chat:
@@ -78,10 +79,13 @@ if __name__ == "__main__":
     tk = os.environ.get("TG_TOKEN")
     ch = os.environ.get("TG_CHAT")
     
-    print("[+] اسکن بازار مجهز به Gemini API...")
+    # تنظیم دقیق ساعت به وقت محلی ایران (UTC +3:30)
+    Iran_TZ = timezone(timedelta(hours=3, minutes=30))
+    current_time_str = datetime.now(Iran_TZ).strftime('%H:%M:%S (IRST)')
+    
     data = _get_safe(f"{GT}/networks/solana/trending_pools?page=1")
     
-    msg_lines = [f"<b>🤖 رادار هوش مصنوعی Gemini (سولانا)</b>\n<code>{datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC</code>\n"]
+    msg_lines = [f"<b>🤖 رادار هوش مصنوعی Gemini (سولانا)</b>\n<code>{current_time_str}</code>\n"]
     sent_count = 0
     
     if data and "data" in data:
@@ -119,7 +123,6 @@ if __name__ == "__main__":
             if base_token_id.startswith("solana_"):
                 base_token_id = base_token_id[7:]
                 
-            # دریافت نظر هوش مصنوعی Gemini
             ai_comment = analyze_with_gemini(name, price_change, volume_ratio, reserve)
             
             if signal_type == "PRE_PUMP":
@@ -163,8 +166,3 @@ if __name__ == "__main__":
         msg = "\n".join(msg_lines)
         if tk and ch:
             notify_telegram(tk, ch, msg)
-            print("[✓] سیگنال‌ها همراه با تحلیل Gemini ارسال شدند.")
-        else:
-            print(msg)
-    else:
-        print("[-] هیچ توکنی با شرایط خاص یافت نشد.")
